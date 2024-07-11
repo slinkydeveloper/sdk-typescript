@@ -10,7 +10,7 @@
  */
 
 import type { WrappedPromise } from "../src/utils/promises.js";
-import { CompletablePromise, wrapDeeply } from "../src/utils/promises.js";
+import { CompletablePromise, listenOnThen } from "../src/utils/promises.js";
 import { describe, expect, it } from "vitest";
 
 describe("promises.wrapDeeply", () => {
@@ -19,10 +19,10 @@ describe("promises.wrapDeeply", () => {
     const completablePromise = new CompletablePromise();
 
     let p = completablePromise.promise;
-    p = wrapDeeply(p, () => {
+    p = listenOnThen(p, () => {
       callbackInvokeOrder.push(2);
     });
-    p = wrapDeeply(p, () => {
+    p = listenOnThen(p, () => {
       callbackInvokeOrder.push(1);
     });
     p = (p as WrappedPromise<string>).transform((v) => v + " transformed");

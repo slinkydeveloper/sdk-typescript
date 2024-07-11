@@ -79,7 +79,7 @@ import type {
 } from "@restatedev/restate-sdk-core";
 import { RandImpl } from "./utils/rand.js";
 import { newJournalEntryPromiseId } from "./promise_combinator_tracker.js";
-import type { WrappedPromise } from "./utils/promises.js";
+import { transformIt } from "./utils/promises.js";
 import { Buffer } from "node:buffer";
 import { deserializeJson, serializeJson } from "./utils/serde.js";
 
@@ -135,8 +135,14 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
         get: (_target, prop) => {
           const route = prop as string;
           return (...args: unknown[]) => {
-            const requestBytes = serializeJson(args.shift());
-            return this.invoke(name, route, requestBytes, key);
+            return this.invoke(
+              name,
+              route,
+              args.shift(),
+              key,
+              serializeJson,
+              deserializeJson
+            );
           };
         },
       }
@@ -259,42 +265,55 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
   // --- Calls, background calls, etc
 
   // DON'T make this function async!!! see sideEffect comment for details.
-  private invoke(
+  private invoke<REQ = Uint8Array, RES = Uint8Array>(
     service: string,
     method: string,
-    data: Uint8Array,
-    key?: string
+    data: REQ,
+    key?: string,
+    serializer?: (req: REQ) => Uint8Array,
+    deserializer?: (res: Uint8Array) => RES
     /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-  ): InternalCombineablePromise<any> {
+  ): InternalCombineablePromise<RES> {
     this.checkState("invoke");
 
     const msg = new CallEntryMessage({
       serviceName: service,
       handlerName: method,
-      parameter: data,
+      parameter: serializer ? serializer(data) : (data as Uint8Array),
       key,
     });
-    return this.markCombineablePromise(
-      this.stateMachine
-        .handleUserCodeMessage(INVOKE_ENTRY_MESSAGE_TYPE, msg)
-        .transform((v): any => deserializeJson(v as Uint8Array))
-    );
+
+    const p = transformIt(
+      this.stateMachine.handleUserCodeMessage(
+        INVOKE_ENTRY_MESSAGE_TYPE,
+        msg
+      ) as Promise<Uint8Array>,
+      (res) => {
+        if (deserializer) {
+          return deserializer(res);
+        }
+        return res;
+      }
+    ) as Promise<RES>;
+
+    return this.markCombineablePromise(p);
   }
 
-  private async invokeOneWay(
+  private async invokeOneWay<REQ = Uint8Array>(
     service: string,
     method: string,
-    data: Uint8Array,
+    data: REQ,
+    serializer?: (req: REQ) => Uint8Array,
     delay?: number,
     key?: string
-  ): Promise<Uint8Array> {
+  ): Promise<void> {
     const actualDelay = delay || 0;
     const invokeTime =
       actualDelay > 0 ? Date.now() + actualDelay : protoInt64.zero;
     const msg = new OneWayCallEntryMessage({
       serviceName: service,
       handlerName: method,
-      parameter: data,
+      parameter: serializer ? serializer(data) : (data as Uint8Array),
       invokeTime: protoInt64.parse(invokeTime),
       key,
     });
@@ -303,7 +322,6 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
       BACKGROUND_INVOKE_ENTRY_MESSAGE_TYPE,
       msg
     );
-    return new Uint8Array();
   }
 
   serviceClient<D>({ name }: ServiceDefinitionFrom<D>): Client<Service<D>> {
@@ -313,8 +331,14 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
         get: (_target, prop) => {
           const route = prop as string;
           return (...args: unknown[]) => {
-            const requestBytes = serializeJson(args.shift());
-            return this.invoke(name, route, requestBytes);
+            return this.invoke(
+              name,
+              route,
+              args.shift(),
+              key,
+              serializeJson,
+              deserializeJson
+            );
           };
         },
       }
@@ -333,8 +357,14 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
         get: (_target, prop) => {
           const route = prop as string;
           return (...args: unknown[]) => {
-            const requestBytes = serializeJson(args.shift());
-            return this.invoke(name, route, requestBytes, key);
+            return this.invoke(
+              name,
+              route,
+              args.shift(),
+              key,
+              serializeJson,
+              deserializeJson
+            );
           };
         },
       }
@@ -353,11 +383,11 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
         get: (_target, prop) => {
           const route = prop as string;
           return (...args: unknown[]) => {
-            const requestBytes = serializeJson(args.shift());
             this.invokeOneWay(
               service.name,
               route,
-              requestBytes,
+              args.shift(),
+              serializeJson,
               opts?.delay
             ).catch((e) => {
               this.stateMachine.handleDanglingPromiseError(e as Error);
@@ -381,11 +411,11 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
         get: (_target, prop) => {
           const route = prop as string;
           return (...args: unknown[]) => {
-            const requestBytes = serializeJson(args.shift());
             this.invokeOneWay(
               obj.name,
               route,
-              requestBytes,
+              args.shift(),
+              serializeJson,
               opts?.delay,
               key
             ).catch((e) => {
@@ -410,11 +440,11 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
         get: (_target, prop) => {
           const route = prop as string;
           return (...args: unknown[]) => {
-            const requestBytes = serializeJson(args.shift());
             this.invokeOneWay(
               def.name,
               route,
-              requestBytes,
+              args.shift(),
+              serializeJson,
               opts?.delay,
               key
             ).catch((e) => {
@@ -540,7 +570,7 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
     return this.markCombineablePromise(this.sleepInternal(millis));
   }
 
-  private sleepInternal(millis: number): WrappedPromise<void> {
+  private sleepInternal(millis: number): Promise<void> {
     return this.stateMachine.handleUserCodeMessage<void>(
       SLEEP_ENTRY_MESSAGE_TYPE,
       new SleepEntryMessage({
@@ -555,9 +585,12 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
     this.checkState("awakeable");
 
     const msg = new AwakeableEntryMessage();
-    const promise = this.stateMachine
-      .handleUserCodeMessage<Buffer>(AWAKEABLE_ENTRY_MESSAGE_TYPE, msg)
-      .transform((result: Buffer | void) => {
+    const promise = transformIt(
+      this.stateMachine.handleUserCodeMessage<Buffer>(
+        AWAKEABLE_ENTRY_MESSAGE_TYPE,
+        msg
+      ),
+      (result: Buffer | void) => {
         if (!(result instanceof Buffer)) {
           // This should either be a filled buffer or an empty buffer but never anything else.
           throw RetryableError.internal(
@@ -566,7 +599,8 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
         }
 
         return JSON.parse(result.toString()) as T;
-      });
+      }
+    );
 
     // This needs to be done after handling the message in the state machine
     // otherwise the index is not yet incremented.
@@ -629,7 +663,7 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
       promises: PromiseLike<unknown>[]
     ) => Promise<unknown>,
     promises: T
-  ): WrappedPromise<unknown> {
+  ): Promise<unknown> {
     const self = extractContext(promises[0]);
     if (!self) {
       throw RetryableError.internal("Not a combinable promise");
@@ -671,12 +705,11 @@ export class ContextImpl implements ObjectContext, WorkflowContext {
     this.checkNotExecutingRun(callType);
   }
 
-  markCombineablePromise<T>(
-    p: WrappedPromise<T>
-  ): InternalCombineablePromise<T> {
+  markCombineablePromise<T>(p: Promise<T>): InternalCombineablePromise<T> {
     const journalIndex = this.stateMachine.getUserCodeJournalIndex();
     const orTimeout = (millis: number): Promise<T> => {
-      const sleepPromise: Promise<T> = this.sleepInternal(millis).transform(
+      const sleepPromise: Promise<T> = transformIt(
+        this.sleepInternal(millis),
         () => {
           throw new TimeoutError();
         }
@@ -779,9 +812,13 @@ class DurablePromiseImpl<T> implements DurablePromise<T> {
     });
 
     return this.ctx.markCombineablePromise(
-      this.ctx.stateMachine
-        .handleUserCodeMessage(GET_PROMISE_MESSAGE_TYPE, msg)
-        .transform((v): any => deserializeJson(v as Uint8Array))
+      transformIt(
+        this.ctx.stateMachine.handleUserCodeMessage(
+          GET_PROMISE_MESSAGE_TYPE,
+          msg
+        ),
+        (v): any => deserializeJson(v as Uint8Array)
+      )
     );
   }
 
@@ -790,11 +827,14 @@ class DurablePromiseImpl<T> implements DurablePromise<T> {
       key: this.name,
     });
 
-    return this.ctx.stateMachine
-      .handleUserCodeMessage(PEEK_PROMISE_MESSAGE_TYPE, msg)
-      .transform((v): any =>
+    return transformIt(
+      this.ctx.stateMachine.handleUserCodeMessage(
+        PEEK_PROMISE_MESSAGE_TYPE,
+        msg
+      ),
+      (v): any =>
         v instanceof Empty ? undefined : deserializeJson(v as Uint8Array)
-      );
+    );
   }
 
   resolve(value?: T | undefined): Promise<void> {

@@ -1,5 +1,4 @@
-import type { WrappedPromise } from "./utils/promises.js";
-import { CompletablePromise, wrapDeeply } from "./utils/promises.js";
+import { CompletablePromise, listenOnThen } from "./utils/promises.js";
 
 export enum PromiseType {
   JournalEntry,
@@ -38,7 +37,7 @@ function preparePromiseCombinator(
   onNewCompleted: (combinatorIndex: number, promiseId: PromiseId) => void,
   onCombinatorResolved: (combinatorIndex: number) => Promise<void>,
   onCombinatorReplayed: (combinatorIndex: number) => void
-): WrappedPromise<unknown> {
+): Promise<unknown> {
   // Create the proxy promises and index them
   const promisesWithProxyPromise = promises.map((v) => ({
     id: v.id,
@@ -63,7 +62,7 @@ function preparePromiseCombinator(
       await onCombinatorResolved(combinatorIndex)
   );
 
-  return wrapDeeply(combinator, () => {
+  return listenOnThen(combinator, () => {
     const replayOrder = readReplayOrder(combinatorIndex);
 
     if (replayOrder === undefined) {
@@ -140,7 +139,7 @@ export class PromiseCombinatorTracker {
       promises: PromiseLike<unknown>[]
     ) => Promise<unknown>,
     promises: Array<{ id: PromiseId; promise: Promise<unknown> }>
-  ): WrappedPromise<unknown> {
+  ): Promise<unknown> {
     const combinatorIndex = this.nextCombinatorIndex;
     this.nextCombinatorIndex++;
 

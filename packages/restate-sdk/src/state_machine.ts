@@ -42,10 +42,9 @@ import {
 import type { LocalStateStore } from "./local_state_store.js";
 import type { LoggerContext } from "./logger.js";
 import { createRestateConsole } from "./logger.js";
-import type { WrappedPromise } from "./utils/promises.js";
 import {
   CompletablePromise,
-  wrapDeeply,
+  listenOnThen,
   WRAPPED_PROMISE_PENDING,
 } from "./utils/promises.js";
 import type { PromiseId } from "./promise_combinator_tracker.js";
@@ -157,11 +156,11 @@ export class StateMachine implements RestateStreamConsumer {
     message: p.ProtocolMessage,
     completedFlag?: boolean,
     requiresAckFlag?: boolean
-  ): WrappedPromise<T | void> {
+  ): Promise<T | void> {
     // if the state machine is already closed, return a promise that never
     // completes, so that the user code does not resume
     if (this.stateMachineClosed) {
-      return WRAPPED_PROMISE_PENDING as WrappedPromise<T | void>;
+      return WRAPPED_PROMISE_PENDING as Promise<T | void>;
     }
 
     const promise = this.journal.handleUserSideMessage(messageType, message);
@@ -186,7 +185,7 @@ export class StateMachine implements RestateStreamConsumer {
       );
     }
 
-    return wrapDeeply(promise, () => {
+    return listenOnThen(promise, () => {
       if (!p.SUSPENSION_TRIGGERS.includes(messageType)) {
         return;
       }
@@ -205,7 +204,7 @@ export class StateMachine implements RestateStreamConsumer {
     promises: Array<{ id: PromiseId; promise: Promise<unknown> }>
   ) {
     if (this.stateMachineClosed) {
-      return WRAPPED_PROMISE_PENDING as WrappedPromise<unknown>;
+      return WRAPPED_PROMISE_PENDING as Promise<unknown>;
     }
 
     // We don't need the promise wrapping here to schedule a suspension,

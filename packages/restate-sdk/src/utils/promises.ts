@@ -9,56 +9,17 @@
  * https://github.com/restatedev/sdk-typescript/blob/main/LICENSE
  */
 
-// -- Wrapped promise
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-export type WrappedPromise<T> = Promise<T> & {
-  // The reason for this transform is that we want to retain the wrapping.
-  // When working with WrappedPromise you MUST use this method instead of then for mapping the promise results.
-  transform: <TResult1 = T, TResult2 = never>(
-    onfulfilled?:
-      | ((value: T) => TResult1 | PromiseLike<TResult1>)
-      | null
-      | undefined,
-    onrejected?:
-      | ((reason: any) => TResult2 | PromiseLike<TResult2>)
-      | null
-      | undefined
-  ) => WrappedPromise<TResult1 | TResult2>;
-};
-
-export function wrapDeeply<T>(
+/**
+ * Transform the result of a promise, without invoking the then method.
+ */
+export function transformIt<T, U = T>(
   promise: Promise<T>,
-  onThen?: () => void
-): WrappedPromise<T> {
-  // We need this to support nesting of WrappedPromise
-  let transform: <TResult1 = T, TResult2 = never>(
-    onfulfilled?:
-      | ((value: T) => TResult1 | PromiseLike<TResult1>)
-      | null
-      | undefined,
-    onrejected?:
-      | ((reason: any) => TResult2 | PromiseLike<TResult2>)
-      | null
-      | undefined
-  ) => WrappedPromise<TResult1 | TResult2>;
-  // Object.hasOwn doesn't have great support yet, but this has the same effect
-  if (Object.prototype.hasOwnProperty.call(promise, "transform")) {
-    const wrappedPromise = promise as WrappedPromise<T>;
-    transform = (onfulfilled, onrejected) =>
-      wrapDeeply(wrappedPromise.transform(onfulfilled, onrejected), onThen);
-  } else {
-    transform = (onfulfilled, onrejected) =>
-      wrapDeeply(promise.then(onfulfilled, onrejected), onThen);
-  }
-
-  /* eslint-disable @typescript-eslint/no-explicit-any */
+  transformOnfulfilled: (value: T) => U | PromiseLike<U>
+): Promise<U> {
   return {
-    transform,
-
-    then: function <TResult1 = T, TResult2 = never>(
+    then: function <TResult1 = U, TResult2 = never>(
       onfulfilled?:
-        | ((value: T) => TResult1 | PromiseLike<TResult1>)
+        | ((value: U) => TResult1 | PromiseLike<TResult1>)
         | null
         | undefined,
       onrejected?:
@@ -66,26 +27,67 @@ export function wrapDeeply<T>(
         | null
         | undefined
     ): Promise<TResult1 | TResult2> {
-      if (onThen !== undefined) {
-        onThen();
+      if (onfulfilled) {
+        return promise.then(
+          async (t) => onfulfilled(await transformOnfulfilled(t)),
+          onrejected
+        );
+      } else {
+        return promise.then(undefined, onrejected);
       }
-      return promise.then(onfulfilled, onrejected);
     },
-    catch: function <TResult = never>(
-      onrejected?:
-        | ((reason: any) => TResult | PromiseLike<TResult>)
-        | null
-        | undefined
-    ): Promise<T | TResult> {
-      return wrapDeeply(promise.catch(onrejected), onThen);
-    },
+    catch: promise.catch.bind(promise),
     finally: function (
       onfinally?: (() => void) | null | undefined
-    ): Promise<T> {
-      return wrapDeeply(promise.finally(onfinally), onThen);
+    ): Promise<U> {
+      return promise.then(transformOnfulfilled).finally(onfinally);
     },
     [Symbol.toStringTag]: "",
   };
+}
+
+/**
+ * Add a listener when the {@link then} method is invoked.
+ */
+export function listenOnThen<T>(
+  promise: Promise<T>,
+  onThen?: () => void
+): Promise<T> {
+  if (onThen) {
+    return {
+      then: function <TResult1 = T, TResult2 = never>(
+        onfulfilled?:
+          | ((value: T) => TResult1 | PromiseLike<TResult1>)
+          | null
+          | undefined,
+        onrejected?:
+          | ((reason: any) => TResult2 | PromiseLike<TResult2>)
+          | null
+          | undefined
+      ): Promise<TResult1 | TResult2> {
+        if (onThen !== undefined) {
+          onThen();
+        }
+        return promise.then(onfulfilled, onrejected);
+      },
+      catch: function <TResult = never>(
+        onrejected?:
+          | ((reason: any) => TResult | PromiseLike<TResult>)
+          | null
+          | undefined
+      ): Promise<T | TResult> {
+        return listenOnThen(promise.catch(onrejected), onThen);
+      },
+      finally: function (
+        onfinally?: (() => void) | null | undefined
+      ): Promise<T> {
+        return listenOnThen(promise.finally(onfinally), onThen);
+      },
+      [Symbol.toStringTag]: "",
+    };
+  } else {
+    return promise;
+  }
 }
 
 // Like https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers
@@ -111,9 +113,3 @@ export class CompletablePromise<T> {
     this.failure(reason);
   }
 }
-
-// A promise that is never completed
-// eslint-disable-next-line @typescript-eslint/no-empty-function
-export const PROMISE_PENDING: Promise<any> = new Promise<any>(() => {});
-export const WRAPPED_PROMISE_PENDING: Promise<any> =
-  wrapDeeply(PROMISE_PENDING);
