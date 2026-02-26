@@ -11,8 +11,8 @@
 
 import {
   endpoint,
-  createEndpointHandler,
   serde,
+  createHttp2StreamHandler,
 } from "@restatedev/restate-sdk";
 import type {
   TypedState,
@@ -36,6 +36,7 @@ import {
 import { tableFromIPC } from "apache-arrow";
 import * as http2 from "http2";
 import type * as net from "net";
+import { IncomingHttpHeaders, ServerHttp2Stream } from "http2";
 
 /**
  * Custom wait strategy that waits for Restate partitions to be ready by
@@ -117,19 +118,20 @@ async function prepareRestateEndpoint(
 ): Promise<http2.Http2Server> {
   // Prepare RestateServer
   let handler: (
-    request: http2.Http2ServerRequest,
-    response: http2.Http2ServerResponse
+    stream: ServerHttp2Stream,
+    headers: IncomingHttpHeaders
   ) => void;
   if (typeof param === "function") {
     const restateEndpoint = endpoint();
     param(restateEndpoint);
-    handler = restateEndpoint.http2Handler();
+    handler = restateEndpoint.http2StreamHandler();
   } else {
-    handler = createEndpointHandler(param);
+    handler = createHttp2StreamHandler(param);
   }
 
   // Start HTTP2 server on random port
-  const restateHttpServer = http2.createServer(handler);
+  const restateHttpServer = http2.createServer();
+  restateHttpServer.on("stream", handler);
   await new Promise((resolve, reject) => {
     restateHttpServer
       .listen(0)

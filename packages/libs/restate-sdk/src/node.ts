@@ -24,15 +24,26 @@ export function endpoint(): RestateEndpoint {
 }
 
 /**
- * Creates an HTTP/2 request handler for the provided services.
+ * Creates an HTTP/2 stream handler for the provided services.
  *
  * @example
  * ```
- * const httpServer = http2.createServer(createEndpointHandler({ services: [myService] }));
+ * const httpServer = http2.createServer()
+ * httpServer.on("stream", createHttp2StreamHandler({ services: [myService] }));
  * httpServer.listen(port);
  * ```
  * @param {EndpointOptions} options - Configuration options for the endpoint handler.
  * @returns An HTTP/2 request handler function.
+ */
+export function createHttp2StreamHandler(options: EndpointOptions) {
+  return withOptions<RestateEndpoint>(
+    new NodeEndpoint(),
+    options
+  ).http2StreamHandler();
+}
+
+/**
+ * @deprecated use {@link createHttp2StreamHandler} instead.
  */
 export function createEndpointHandler(options: EndpointOptions) {
   return withOptions<RestateEndpoint>(

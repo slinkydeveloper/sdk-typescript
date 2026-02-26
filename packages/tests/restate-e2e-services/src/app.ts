@@ -61,13 +61,14 @@ let INFLIGHT_REQUESTS = 0;
 let ACTIVE_SESSIONS = 0;
 const sessions = new Map();
 
-const handler = endpoint.http2Handler();
-const server = http2.createServer((req, res) => {
+const handler = endpoint.http2StreamHandler();
+const server = http2.createServer();
+server.on("stream", (stream, headers) => {
   INFLIGHT_REQUESTS++;
-  res.once("close", () => {
+  stream.once("close", () => {
     INFLIGHT_REQUESTS--;
   });
-  handler(req, res);
+  handler(stream, headers);
 });
 
 server.on("session", (session) => {

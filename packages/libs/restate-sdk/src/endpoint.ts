@@ -9,7 +9,12 @@
  * https://github.com/restatedev/sdk-typescript/blob/main/LICENSE
  */
 
-import type { Http2ServerRequest, Http2ServerResponse } from "http2";
+import {
+  Http2ServerRequest,
+  Http2ServerResponse,
+  IncomingHttpHeaders,
+  ServerHttp2Stream,
+} from "http2";
 import type {
   VirtualObjectDefinition,
   ServiceDefinition,
@@ -95,7 +100,7 @@ export interface RestateEndpointBase<E> {
 /**
  * RestateEndpoint encapsulates all the Restate services served by this endpoint.
  *
- * A RestateEndpoint can either be served as HTTP2 server, using the methods {@link RestateEndpoint.listen} or {@link RestateEndpoint.http2Handler}.
+ * A RestateEndpoint can either be served as HTTP2 server, using the methods {@link listen} or {@link http2StreamHandler}.
  *
  * For Lambda, check {@link LambdaEndpoint}
  *
@@ -120,23 +125,43 @@ export interface RestateEndpoint extends RestateEndpointBase<RestateEndpoint> {
    *
    * The returned promise resolves with the bound port when the server starts listening, or rejects with a failure otherwise.
    *
-   * This method is a shorthand for:
+   * This method is shorthand for:
    *
    * @example
    * ```
-   * const httpServer = http2.createServer(endpoint.http2Handler());
-   * httpServer.listen(port);
+   * const httpServer = http2.createServer();
+   * httpServer.on('stream', endpoint.http2StreamHandler());
+   * httpServer.listen(port)
    * ```
    *
-   * If you need to manually control the server lifecycle, we suggest to manually instantiate the http2 server and use {@link RestateEndpoint.http2Handler}.
+   * If you need to manually control the server lifecycle, we suggest manually instantiating the http2 server and use {@link http2StreamHandler}.
    *
-   * @param port The port to listen at. May be undefined (see above).
+   * @param port The port to listen at. It may be undefined (see above).
    * @returns a Promise that resolves with the bound port, or rejects with a failure otherwise.
    */
   listen(port?: number): Promise<number>;
 
   /**
-   * Returns an http2 server handler. See {@link RestateEndpoint.listen} for more details.
+   * Returns an http2 stream handler for NodeJS HTTP/2 API.
+   *
+   * @example
+   * ```
+   * const httpServer = http2.createServer();
+   * httpServer.on('stream', endpoint.http2StreamHandler());
+   * httpServer.listen(port)
+   * ```
+   *
+   * See https://nodejs.org/api/http2.html#server-side-example for more details.
+   */
+  http2StreamHandler(): (
+    stream: ServerHttp2Stream,
+    headers: IncomingHttpHeaders
+  ) => void;
+
+  /**
+   * Returns an http2 server handler. See {@link listen} for more details.
+   *
+   * @deprecated Use {@link http2StreamHandler} instead
    */
   http2Handler(): (
     request: Http2ServerRequest,
