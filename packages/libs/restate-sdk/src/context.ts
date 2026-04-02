@@ -163,9 +163,34 @@ export interface ContextDate {
 }
 
 /**
+ * Context passed to the {@link RunAction} closure.
+ */
+export interface RunContext {
+  /**
+   * An {@link AbortSignal} that is aborted when the run action should stop executing.
+   *
+   * This signal is aborted when:
+   * - The current attempt is completed (the attempt abort signal fires)
+   * - The invocation is canceled by Restate
+   *
+   * You can pass this signal to `fetch()` or other cancellable APIs.
+   *
+   * @example
+   * ```typescript
+   * ctx.run(({ abortSignal }) => {
+   *   return fetch("https://example.com", { signal: abortSignal });
+   * });
+   * ```
+   */
+  readonly abortSignal: AbortSignal;
+}
+
+/**
  * A function that can be run and its result durably persisted by Restate.
  */
-export type RunAction<T> = (() => Promise<T>) | (() => T);
+export type RunAction<T> =
+  | ((ctx: RunContext) => Promise<T>)
+  | ((ctx: RunContext) => T);
 
 export type RunOptions<T> = {
   serde?: Serde<T>;

@@ -27,6 +27,7 @@ export type {
   UntypedState,
   ContextDate,
   RunAction,
+  RunContext,
   RunOptions,
   SendOptions,
   KeyValueStore,
@@ -113,6 +114,7 @@ export {
    * @deprecated YOU MUST NOT USE THIS TYPE
    */
   RestateError,
+  AbortedError,
   TerminalError,
   TimeoutError,
   RetryableError,

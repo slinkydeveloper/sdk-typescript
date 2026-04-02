@@ -419,6 +419,7 @@ export class PromisesExecutor {
           // Wait for any of the pending run to complete
           await this.runClosuresTracker.awaitNextCompletedRun();
         } else if (doProgressResult === "CancelSignalReceived") {
+          this.runClosuresTracker.abortAllRunning();
           restatePromise.tryCancel();
           return;
         } else {

@@ -35,6 +35,7 @@ import {
 } from "./endpoint/handlers/vm/sdk_shared_core_wasm_bindings.js";
 import {
   ensureError,
+  AbortedError,
   INTERNAL_ERROR_CODE,
   logError,
   RestateError,
@@ -454,16 +455,72 @@ export class ContextImpl
 
     // Now prepare the run task
     const doRun: () => Promise<any> = async () => {
+      // Behavior expectations for the abort
+      //
+      // Take the following code:
+      // await ctx.run({abortSignal} => ...)
+      //
+      // If cancellation arrives, abort signal kicks in
+      // But then, what is the expected result of the future?
+      //  * the standard CancelledError we throw today for restate cancellations...
+      //  * or whatever the output of ctx.run will be?!
+      //    * And what if ctx.run rethrows just AbortError (which is by default retryable!)
+      //
+      // With combinators:
+      // await RestatePromise.all(ctx.run({abortSignal} => ...), ctx.run({abortSignal} => ...))
+      // ?!?!?!
+      // await RestatePromise.any(ctx.run({abortSignal} => ...), ctx.run({abortSignal} => ...))
+      // ?!?!?!
+
+
+
+
+      // Set up abort controller for this run
+      const abortController =
+        this.runClosuresTracker.createAbortController(handle);
+
+      // Abort when the attempt completes
+      const attemptSignal =
+        this.invocationRequest.attemptCompletedSignal;
+      const onAttemptAbort = () => abortController.abort();
+      if (attemptSignal.aborted) {
+        abortController.abort();
+      } else {
+        attemptSignal.addEventListener("abort", onAttemptAbort, {
+          once: true,
+        });
+      }
+
       // Execute the user code
       const startTime = Date.now();
       let res: T;
       let err;
       try {
-        res = await action();
+        res = await action({ abortSignal: abortController.signal });
       } catch (e) {
         err = ensureError(e, this.asTerminalError);
+      } finally {
+        attemptSignal.removeEventListener("abort", onAttemptAbort);
+        this.runClosuresTracker.markRunCompleted(handle);
       }
       const attemptDuration = Date.now() - startTime;
+
+      // If we were aborted and the run already completed, propose a terminal abort error
+      if (abortController.signal.aborted) {
+        try {
+          const abortedErr = new AbortedError();
+          this.coreVm.propose_run_completion_failure(handle, {
+            code: abortedErr.code,
+            message: abortedErr.message,
+            metadata: [],
+          });
+        } catch (e) {
+          this.handleInvocationEndError(e);
+          return pendingPromise<T>();
+        }
+        await this.outputPump.awaitNextProgress();
+        return;
+      }
 
       // Propose the completion to the VM
       try {
@@ -901,6 +958,7 @@ export class RunClosuresTracker {
     number,
     () => Promise<any>
   >();
+  private runningAbortControllers: Map<number, AbortController> = new Map();
 
   executeRun(handle: number) {
     const runClosure = this.runsToExecute.get(handle);
@@ -916,6 +974,33 @@ export class RunClosuresTracker {
 
   registerRunClosure(handle: number, runClosure: () => Promise<any>) {
     this.runsToExecute.set(handle, runClosure);
+  }
+
+  createAbortController(handle: number): AbortController {
+    const controller = new AbortController();
+    this.runningAbortControllers.set(handle, controller);
+    return controller;
+  }
+
+  markRunCompleted(handle: number) {
+    this.runningAbortControllers.delete(handle);
+  }
+
+  isRunning(handle: number): boolean {
+    return this.runningAbortControllers.has(handle);
+  }
+
+  abort(handle: number) {
+    const controller = this.runningAbortControllers.get(handle);
+    if (controller !== undefined) {
+      controller.abort();
+    }
+  }
+
+  abortAllRunning() {
+    for (const controller of this.runningAbortControllers.values()) {
+      controller.abort();
+    }
   }
 
   awaitNextCompletedRun(): Promise<void> {

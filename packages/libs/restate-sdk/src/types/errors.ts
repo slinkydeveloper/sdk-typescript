@@ -141,6 +141,17 @@ export class CancelledError extends TerminalError {
   }
 }
 
+/**
+ * Returned when a `ctx.run` action was aborted via its abort signal.
+ */
+export class AbortedError extends TerminalError {
+  public override name = "AbortedError";
+
+  constructor() {
+    super("Aborted", { errorCode: CANCEL_ERROR_CODE });
+  }
+}
+
 export interface RetryableErrorOptions {
   /**
    * In how long it should retry.
