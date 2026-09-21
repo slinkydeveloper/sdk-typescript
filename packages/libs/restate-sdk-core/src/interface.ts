@@ -13,6 +13,7 @@
 import type { Serde } from "./serde_api.js";
 import { serde } from "./serde_api.js";
 import type { StandardSchemaV1 } from "./standard_schema.js";
+import type { StateDescriptor, EmptyState } from "./state.js";
 import type {
   ServiceDefinition,
   VirtualObjectDefinition,
@@ -123,7 +124,11 @@ export type ObjectDescriptor<
     string,
     HandlerDescriptor
   >,
-> = Descriptor<P, H, "object">;
+  SD extends StateDescriptor = EmptyState,
+> = Descriptor<P, H, "object"> & {
+  /** @internal typed state contract declared on the object (phantom + runtime) */
+  readonly _state?: SD;
+};
 
 export type WorkflowDescriptor<
   P extends string = string,
@@ -131,7 +136,11 @@ export type WorkflowDescriptor<
     string,
     HandlerDescriptor
   >,
-> = Descriptor<P, H, "workflow">;
+  SD extends StateDescriptor = EmptyState,
+> = Descriptor<P, H, "workflow"> & {
+  /** @internal typed state contract declared on the workflow (phantom + runtime) */
+  readonly _state?: SD;
+};
 
 /** Implemented definition — a Descriptor that is also bindable to an endpoint. */
 export type ImplementedServiceDefinition<
@@ -166,16 +175,24 @@ export interface ServiceInterface {
     handlers: H,
     opts?: DescriptorOpts
   ): ServiceDescriptor<P, H>;
-  object<P extends string, H extends Record<string, HandlerDescriptor>>(
+  object<
+    P extends string,
+    H extends Record<string, HandlerDescriptor>,
+    SD extends StateDescriptor = EmptyState,
+  >(
     name: P,
     handlers: H,
-    opts?: DescriptorOpts
-  ): ObjectDescriptor<P, H>;
-  workflow<P extends string, H extends Record<string, HandlerDescriptor>>(
+    opts?: DescriptorOpts & { state?: SD }
+  ): ObjectDescriptor<P, H, SD>;
+  workflow<
+    P extends string,
+    H extends Record<string, HandlerDescriptor>,
+    SD extends StateDescriptor = EmptyState,
+  >(
     name: P,
     handlers: H,
-    opts?: DescriptorOpts
-  ): WorkflowDescriptor<P, H>;
+    opts?: DescriptorOpts & { state?: SD }
+  ): WorkflowDescriptor<P, H, SD>;
   /** `json<I, O>()` — type params, default JSON serde. */
   json<I = void, O = void>(
     opts?: DescriptorOpts
@@ -252,25 +269,37 @@ export const iface: ServiceInterface = {
   object: function <
     P extends string,
     H extends Record<string, HandlerDescriptor>,
-  >(name: P, handlers: H, opts?: DescriptorOpts): ObjectDescriptor<P, H> {
+    SD extends StateDescriptor = EmptyState,
+  >(
+    name: P,
+    handlers: H,
+    opts?: DescriptorOpts & { state?: SD }
+  ): ObjectDescriptor<P, H, SD> {
     return {
       name,
       _kind: "object",
       _handlers: handlers,
       _description: opts?.description,
       _metadata: opts?.metadata,
+      _state: opts?.state,
     };
   },
   workflow: function <
     P extends string,
     H extends Record<string, HandlerDescriptor>,
-  >(name: P, handlers: H, opts?: DescriptorOpts): WorkflowDescriptor<P, H> {
+    SD extends StateDescriptor = EmptyState,
+  >(
+    name: P,
+    handlers: H,
+    opts?: DescriptorOpts & { state?: SD }
+  ): WorkflowDescriptor<P, H, SD> {
     return {
       name,
       _kind: "workflow",
       _handlers: handlers,
       _description: opts?.description,
       _metadata: opts?.metadata,
+      _state: opts?.state,
     };
   },
   json: function <I = void, O = void>(

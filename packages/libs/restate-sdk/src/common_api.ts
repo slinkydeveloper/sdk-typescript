@@ -108,7 +108,7 @@ export type {
   WorkflowDefinition,
 } from "@restatedev/restate-sdk-core";
 
-export { iface } from "@restatedev/restate-sdk-core";
+export { iface, state } from "@restatedev/restate-sdk-core";
 export type {
   ServiceInterface,
   DescriptorOpts,
@@ -123,6 +123,13 @@ export type {
   ImplementedDefinition,
   InferInput,
   InferOutput,
+  StateFactory,
+  StateKeyDescriptor,
+  StateKeys,
+  StateDescriptor,
+  EmptyState,
+  InferStateValue,
+  StateKeyHasDefault,
 } from "@restatedev/restate-sdk-core";
 export { implement } from "./types/interface.js";
 export type {

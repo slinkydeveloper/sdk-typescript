@@ -130,11 +130,18 @@ export type UntypedState = { _: never };
 /**
  * Key value store operations. Only keyed services have an attached key-value store.
  */
-export interface KeyValueStore<TState extends TypedState> {
+export interface KeyValueStore<
+  TState extends TypedState,
+  TDefaults extends keyof TState = never,
+> {
   /**
    * Get/retrieve state from the Restate runtime.
    * Note that state objects are serialized with `Buffer.from(JSON.stringify(theObject))`
    * and deserialized with `JSON.parse(value.toString()) as T`.
+   *
+   * When the state was declared with a default (see `restate.state(...)`), the
+   * result for that key is non-nullable: the default is returned when the key is
+   * unset.
    *
    * @param name key of the state to retrieve
    * @returns a Promise that is resolved with the value of the state key
@@ -145,7 +152,13 @@ export interface KeyValueStore<TState extends TypedState> {
   get<TValue, TKey extends keyof TState = string>(
     name: TState extends UntypedState ? string : TKey,
     serde?: Serde<TState extends UntypedState ? TValue : TState[TKey]>
-  ): Promise<(TState extends UntypedState ? TValue : TState[TKey]) | null>;
+  ): Promise<
+    TState extends UntypedState
+      ? TValue | null
+      : TKey extends TDefaults
+        ? TState[TKey]
+        : TState[TKey] | null
+  >;
 
   stateKeys(): Promise<Array<string>>;
 
@@ -836,8 +849,10 @@ export interface SignalReference<T> {
  * This context can be used only within virtual objects.
  *
  */
-export interface ObjectContext<TState extends TypedState = UntypedState>
-  extends Context, KeyValueStore<TState>, RestateObjectContext {
+export interface ObjectContext<
+  TState extends TypedState = UntypedState,
+  TDefaults extends keyof TState = never,
+> extends Context, KeyValueStore<TState, TDefaults>, RestateObjectContext {
   key: string;
 }
 
@@ -852,14 +867,20 @@ export interface ObjectContext<TState extends TypedState = UntypedState>
  * This context can be used only within a shared virtual objects.
  *
  */
-export interface ObjectSharedContext<TState extends TypedState = UntypedState>
-  extends Context, RestateObjectSharedContext {
+export interface ObjectSharedContext<
+  TState extends TypedState = UntypedState,
+  TDefaults extends keyof TState = never,
+> extends Context, RestateObjectSharedContext {
   key: string;
 
   /**
    * Get/retrieve state from the Restate runtime.
    * Note that state objects are serialized with `Buffer.from(JSON.stringify(theObject))`
    * and deserialized with `JSON.parse(value.toString()) as T`.
+   *
+   * When the state was declared with a default (see `restate.state(...)`), the
+   * result for that key is non-nullable: the default is returned when the key is
+   * unset.
    *
    * @param name key of the state to retrieve
    * @returns a Promise that is resolved with the value of the state key
@@ -870,7 +891,13 @@ export interface ObjectSharedContext<TState extends TypedState = UntypedState>
   get<TValue, TKey extends keyof TState = string>(
     name: TState extends UntypedState ? string : TKey,
     serde?: Serde<TState extends UntypedState ? TValue : TState[TKey]>
-  ): Promise<(TState extends UntypedState ? TValue : TState[TKey]) | null>;
+  ): Promise<
+    TState extends UntypedState
+      ? TValue | null
+      : TKey extends TDefaults
+        ? TState[TKey]
+        : TState[TKey] | null
+  >;
 
   /**
    * Retrieve all the state keys for this object.
@@ -1098,8 +1125,10 @@ export type DurablePromise<T> = Promise<T> & {
   get(): RestatePromise<T>;
 };
 
-export interface WorkflowSharedContext<TState extends TypedState = UntypedState>
-  extends ObjectSharedContext<TState>, RestateWorkflowSharedContext {
+export interface WorkflowSharedContext<
+  TState extends TypedState = UntypedState,
+  TDefaults extends keyof TState = never,
+> extends ObjectSharedContext<TState, TDefaults>, RestateWorkflowSharedContext {
   /**
    * Create a durable promise that can be resolved or rejected during the workflow execution.
    * The promise is bound to the workflow and will be persisted across suspensions and retries.
@@ -1126,8 +1155,10 @@ export interface WorkflowSharedContext<TState extends TypedState = UntypedState>
   promise<T>(name: string, serde?: Serde<T>): DurablePromise<T>;
 }
 
-export interface WorkflowContext<TState extends TypedState = UntypedState>
-  extends
-    WorkflowSharedContext<TState>,
-    ObjectContext<TState>,
+export interface WorkflowContext<
+  TState extends TypedState = UntypedState,
+  TDefaults extends keyof TState = never,
+> extends
+    WorkflowSharedContext<TState, TDefaults>,
+    ObjectContext<TState, TDefaults>,
     RestateWorkflowContext {}

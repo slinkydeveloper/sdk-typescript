@@ -64,3 +64,13 @@ export type {
   InferOutput,
   SerdeType,
 } from "./interface.js";
+export { state } from "./state.js";
+export type {
+  StateFactory,
+  StateKeyDescriptor,
+  StateKeys,
+  StateDescriptor,
+  EmptyState,
+  InferStateValue,
+  StateKeyHasDefault,
+} from "./state.js";
